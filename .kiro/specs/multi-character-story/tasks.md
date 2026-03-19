@@ -1,0 +1,377 @@
+# 実装計画: マルチキャラクターストーリー
+
+## 概要
+
+既存の単一キャラクター絵本アプリをマルチキャラクター対応に拡張する。共有スキーマ → バックエンドサービス → ルート → フロントエンドの順に依存関係に沿って実装し、各ステップでプロパティベーステストを含める。既存の100テストが引き続きパスすることを保証する。
+
+## タスク
+
+- [x] 1. 共有スキーマ・型定義の追加
+  - [x] 1.1 `packages/shared/src/schemas.ts` に新規 Zod スキーマを追加
+    - `CharacterRoleSchema`, `CreateCharacterSchema`, `UpdateCharacterSchema`, `CreateTemplateSchema`, `GenerateMultiBookSchema`, `ChatMessageSchema` を追加
+    - 既存スキーマは変更しない
+    - _Requirements: 1.1, 1.2, 1.6, 2.1, 2.2_
+  - [x] 1.2 `packages/shared/src/types.ts` に新規型定義を追加
+    - `CharacterRole`, `CharacterProfile`, `StoryTemplate`, `TemplateRole`, `PageTemplate`, `ChatSession`, `ChatMessage`, `StoryDraft`, `DraftPage`, `CharacterSummary`, `MultiProgressEvent`, `ChatSSEEvent` 型を追加
+    - 既存の `ProgressEvent` に `character_sheets_checking` イベントを追加
+    - _Requirements: 1.1, 2.1, 6.5, 7.7, 8.3, 12.2_
+  - [x] 1.3 `packages/shared/src/constants.ts` にマルチキャラクター関連定数を追加
+    - `MAX_CHARACTERS_PER_USER = 10`, `MAX_CHAT_MESSAGES = 50`, `CHARACTER_ROLES` 定数を追加
+    - _Requirements: 2.7, 12.11_
+  - [x] 1.4 `packages/shared/src/index.ts` のエクスポートを更新
+    - 新規スキーマ・型・定数をエクスポートに追加
+    - _Requirements: 1.1, 2.1_
+
+- [x] 2. Template_Service の実装
+  - [x] 2.1 `packages/backend/src/services/template-service.ts` を新規作成
+    - `createTemplate`, `getTemplates`, `getTemplateById`, `updateTemplate`, `archiveTemplate`, `validateTemplate` を実装
+    - Firestore `storyTemplates` コレクションへの CRUD 操作
+    - `validateTemplate` でページロールがテンプレート全体のロール定義に含まれることを検証
+    - 公開テンプレート（`creatorId: null`）とプライベートテンプレート（`creatorId: userId`）の区別
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
+
+  - [ ]* 2.2 Property 1: テンプレート CRUD ラウンドトリップのプロパティテスト
+    - **Property 1: テンプレート CRUD ラウンドトリップ**
+    - `packages/backend/src/services/__tests__/template-service.property.test.ts` に作成
+    - 有効なテンプレートデータを作成→取得し、タイトル・説明・テーマ・ロール・ページが一致することを検証
+    - 更新→再取得で更新データが反映されることを検証
+    - **Validates: Requirements 1.1, 1.4**
+  - [ ]* 2.3 Property 2: テンプレート構造の完全性のプロパティテスト
+    - **Property 2: テンプレート構造の完全性**
+    - 各ページテンプレートが pageNumber, textTemplate, roles, outfitTemplate を含むことを検証
+    - 各ロール定義が role, label, required を含むことを検証
+    - **Validates: Requirements 1.2, 1.6**
+  - [ ]* 2.4 Property 3: テンプレートロール参照の整合性のプロパティテスト
+    - **Property 3: テンプレートロール参照の整合性**
+    - 各ページの roles 配列のロールがテンプレート全体の roles 定義に存在することを検証
+    - 存在しないロールを参照するテンプレートがバリデーションエラーになることを検証
+    - **Validates: Requirements 1.3**
+  - [ ]* 2.5 Property 4: アーカイブテンプレートの除外のプロパティテスト
+    - **Property 4: アーカイブテンプレートの除外**
+    - アーカイブ後のテンプレートが一覧取得で返されないことを検証
+    - **Validates: Requirements 1.5, 4.1**
+
+- [x] 3. Character_Service の実装
+  - [x] 3.1 `packages/backend/src/services/character-service.ts` を新規作成
+    - `createCharacter`, `getCharacters`, `getCharacterById`, `updateCharacter`, `deleteCharacter` CRUD 操作を実装
+    - Firestore `users/{userId}/characters` コレクションへの操作
+    - 1ユーザーあたり最大10件の制限チェック
+    - _Requirements: 2.1, 2.2, 2.7, 11.1, 11.3, 11.5_
+  - [x] 3.2 キャラクター写真アップロード・キャラクターシート生成機能を実装
+    - `uploadCharacterPhoto`, `replaceCharacterPhoto`, `generateCharacterSheetForCharacter` を実装
+    - 写真を `users/{userId}/characters/{characterId}/photo.png` に保存
+    - キャラクターシートを `users/{userId}/characters/{characterId}/character_sheet.png` に保存
+    - Content_Filter による安全性チェック（アップロード前）
+    - JPEG/PNG/WebP 形式、10MB 以下のバリデーション
+    - 写真差し替え時に既存写真・シートを削除して再生成
+    - キャラクターシート生成失敗時は `characterSheetStatus: 'failed'` に設定（エラーにしない）
+    - _Requirements: 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 10.1, 10.2, 10.3, 10.4, 11.2_
+  - [ ]* 3.3 Property 5: キャラクター CRUD ラウンドトリップのプロパティテスト
+    - **Property 5: キャラクター CRUD ラウンドトリップ**
+    - `packages/backend/src/services/__tests__/character-service.property.test.ts` に作成
+    - 有効なキャラクターデータを作成→取得し、名前・役割・年齢・性別・外見が一致することを検証
+    - **Validates: Requirements 2.1**
+  - [ ]* 3.4 Property 6: キャラクター写真ストレージパスの正確性のプロパティテスト
+    - **Property 6: キャラクター写真ストレージパスの正確性**
+    - 任意の userId と characterId に対してストレージパスが `users/{userId}/characters/{characterId}/photo.png` 形式であることを検証
+    - **Validates: Requirements 2.3**
+  - [ ]* 3.5 Property 7: 写真アップロードによるキャラクターシートライフサイクルのプロパティテスト
+    - **Property 7: 写真アップロードによるキャラクターシートライフサイクル**
+    - 写真アップロード後に `characterSheetStatus` が `generating` → `completed` に遷移し、`characterSheetPath` が非 null であることを検証
+    - **Validates: Requirements 2.4, 2.5**
+  - [ ]* 3.6 Property 8: キャラクター登録数上限の強制のプロパティテスト
+    - **Property 8: キャラクター登録数上限の強制**
+    - 10件登録済みの場合に新規作成が拒否されることを検証
+    - 10件未満の場合は作成が成功することを検証
+    - **Validates: Requirements 2.7**
+  - [ ]* 3.7 Property 9: キャラクターシートプロンプトの構成のプロパティテスト
+    - **Property 9: キャラクターシートプロンプトの構成**
+    - プロンプトにキャラクターの名前・年齢・役割が含まれることを検証
+    - 大人ロール（papa, mama）の場合は「大人の体型」指示を含むことを検証
+    - 子供ロール（protagonist, sibling）の場合は「子供の体型」指示を含むことを検証
+    - **Validates: Requirements 3.2, 3.3, 3.4**
+  - [ ]* 3.8 Property 10: キャラクターシート API 呼び出し形式のプロパティテスト
+    - **Property 10: キャラクターシート API 呼び出し形式**
+    - `images.edit` に渡される `image` パラメータが同一写真2枚の配列であることを検証
+    - **Validates: Requirements 3.1**
+  - [ ]* 3.9 Property 20: キャラクター写真のコンテンツ安全性とファイル検証のプロパティテスト
+    - **Property 20: キャラクター写真のコンテンツ安全性とファイル検証**
+    - Content_Filter チェックが実行されることを検証
+    - 不適切画像が保存されずエラーが返ることを検証
+    - JPEG/PNG/WebP 以外、10MB 超のファイルが拒否されることを検証
+    - **Validates: Requirements 10.1, 10.2, 10.4**
+  - [ ]* 3.10 Property 21: 写真差し替え時のクリーンアップと再生成のプロパティテスト
+    - **Property 21: 写真差し替え時のクリーンアップと再生成**
+    - 既存写真・シートが Storage から削除され、新写真が保存され、シート再生成が開始されることを検証
+    - **Validates: Requirements 11.2**
+  - [ ]* 3.11 Property 22: キャラクター削除時のクリーンアップのプロパティテスト
+    - **Property 22: キャラクター削除時のクリーンアップ**
+    - 関連写真・シートが Storage から削除され、Firestore ドキュメントが削除されることを検証
+    - 削除後に取得すると null が返ることを検証
+    - **Validates: Requirements 11.3**
+  - [ ]* 3.12 Property 23: プロフィール更新時のシート非再生成のプロパティテスト
+    - **Property 23: プロフィール更新時のシート非再生成**
+    - 名前・外見情報の更新（写真変更なし）で `characterSheetPath` と `characterSheetStatus` が変更されないことを検証
+    - **Validates: Requirements 11.5**
+
+- [x] 4. チェックポイント — 共有スキーマとバックエンドサービス（Template + Character）
+  - 既存の100テストがすべてパスすることを確認
+  - 新規テストがすべてパスすることを確認
+  - 問題があればユーザーに確認する
+
+- [x] 5. Story_Engine のマルチキャラクター拡張
+  - [x] 5.1 `packages/backend/src/services/story-engine.ts` に `generateStoryFromTemplate` を追加
+    - テンプレートのテキストテンプレート内の `{role}` プレースホルダーをキャラクター名で置換
+    - GPT-4o に各キャラクターの名前・年齢・役割・外見情報を含むプロンプトを送信
+    - 各ページの outfit に全登場キャラクターのロールラベル付き服装記述を含める
+    - 既存の `generateStory` 関数は変更しない（後方互換性）
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 9.2_
+
+  - [ ]* 5.2 Property 11: 重複キャラクター割り当ての防止のプロパティテスト
+    - **Property 11: 重複キャラクター割り当ての防止**
+    - `packages/backend/src/services/__tests__/story-engine-multi.property.test.ts` に作成
+    - 同一 characterId が複数ロールに割り当てられている場合にバリデーションエラーとなることを検証
+    - **Validates: Requirements 5.2**
+  - [ ]* 5.3 Property 12: 必須ロール割り当ての検証のプロパティテスト
+    - **Property 12: 必須ロール割り当ての検証**
+    - テンプレートの必須ロールすべてに characterId が割り当てられている場合のみ生成が許可されることを検証
+    - 必須ロールが1つでも未割り当ての場合は拒否されることを検証
+    - **Validates: Requirements 5.3**
+  - [ ]* 5.4 Property 13: テンプレートプレースホルダーの置換のプロパティテスト
+    - **Property 13: テンプレートプレースホルダーの置換**
+    - テキスト内の `{role}` プレースホルダーがすべて対応するキャラクター名で置換されることを検証
+    - 置換後のテキストにプレースホルダーが残っていないことを検証
+    - **Validates: Requirements 6.1**
+  - [ ]* 5.5 Property 14: マルチキャラクターストーリープロンプトの構成のプロパティテスト
+    - **Property 14: マルチキャラクターストーリープロンプトの構成**
+    - GPT-4o に送信するプロンプトが各キャラクターの名前・年齢・役割・外見情報を含むことを検証
+    - **Validates: Requirements 6.2**
+  - [ ]* 5.6 Property 15: マルチキャラクター outfit ラベリングのプロパティテスト
+    - **Property 15: マルチキャラクター outfit ラベリング**
+    - 複数キャラクター登場ページの outfit が各キャラクターのロールラベル（`[protagonist]`, `[papa]` 等）を含むことを検証
+    - **Validates: Requirements 6.3**
+  - [ ]* 5.7 Property 19: 後方互換性のコードパス選択のプロパティテスト
+    - **Property 19: 後方互換性のコードパス選択**
+    - `templateId` を含まないリクエストで既存の `generateStory` が呼び出されることを検証
+    - `characterAssignments` を含まないリクエストで既存の `generateForPage` が呼び出されることを検証
+    - **Validates: Requirements 9.2, 9.3**
+
+- [x] 6. Illustration_Engine のマルチキャラクター拡張
+  - [x] 6.1 `packages/backend/src/services/illustration-engine.ts` に `generateForPageMultiCharacter` を追加
+    - 各キャラクターのキャラクターシート＋元写真を `[シート1, 写真1, シート2, 写真2, ...]` 順で参照画像配列を構成
+    - プロンプトに各キャラクターの名前・役割・外見記述・outfit を含め、参照画像との対応を明示
+    - 写真未登録キャラクターはテキストプロンプトのみで描画（参照画像なし）
+    - images.edit 失敗時は最大3回リトライ、リトライ後も失敗時は images.generate にフォールバック
+    - 既存の `generateForPage` 関数は変更しない（後方互換性）
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 9.3_
+  - [ ]* 6.2 Property 16: 参照画像配列の構成と順序のプロパティテスト
+    - **Property 16: 参照画像配列の構成と順序**
+    - `packages/backend/src/services/__tests__/illustration-engine-multi.property.test.ts` に作成
+    - N人の写真登録済みキャラクターに対して参照画像配列が 2*N 枚で `[シート, 写真, シート, 写真, ...]` 順であることを検証
+    - **Validates: Requirements 7.1, 7.2**
+  - [ ]* 6.3 Property 17: マルチキャラクターイラストプロンプトの構成のプロパティテスト
+    - **Property 17: マルチキャラクターイラストプロンプトの構成**
+    - プロンプトが各キャラクターの名前・役割・外見記述・outfit を含み、参照画像との対応を明示することを検証
+    - **Validates: Requirements 7.3**
+  - [ ]* 6.4 Property 18: 部分的写真参照の処理のプロパティテスト
+    - **Property 18: 部分的写真参照の処理**
+    - 写真登録済みキャラクターのみ参照画像を含み、未登録キャラクターの画像を含まないことを検証
+    - **Validates: Requirements 7.4**
+
+- [x] 7. チェックポイント — バックエンドサービス拡張（Story_Engine + Illustration_Engine）
+  - 既存の100テストがすべてパスすることを確認
+  - 新規テストがすべてパスすることを確認
+  - 問題があればユーザーに確認する
+
+- [x] 8. Chat_Story_Service の実装
+  - [x] 8.1 `packages/backend/src/services/chat-story-service.ts` を新規作成
+    - `createSession`, `getSession`, `getSessions` セッション管理を実装
+    - `sendMessage` で GPT-4o SSE ストリーミング応答を実装
+    - `generateDraft` で JSON 形式のストーリードラフト生成を実装
+    - `saveDraftAsTemplate` でドラフトを `storyTemplates` コレクションに保存（`source: 'chat'`）
+    - Firestore `users/{userId}/chatSessions/{sessionId}` への操作
+    - Content_Filter によるユーザーメッセージの安全性チェック
+    - 1セッションあたり最大50件のメッセージ制限
+    - システムプロンプトに登録済みキャラクター一覧を含める
+    - 管理者作成 → `creatorId: null`（公開）、保護者作成 → `creatorId: userId`（プライベート）
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9, 12.10, 12.11, 12.12, 12.13_
+  - [ ]* 8.2 Property 24: チャットセッションシステムプロンプトの構成のプロパティテスト
+    - **Property 24: チャットセッションシステムプロンプトの構成**
+    - `packages/backend/src/services/__tests__/chat-story-service.property.test.ts` に作成
+    - セッション作成時のシステムプロンプトが各キャラクターの名前と年齢を含むことを検証
+    - **Validates: Requirements 12.3**
+  - [ ]* 8.3 Property 25: チャットメッセージ永続化ラウンドトリップのプロパティテスト
+    - **Property 25: チャットメッセージ永続化ラウンドトリップ**
+    - 送信したメッセージがセッション再取得時に会話履歴に含まれていることを検証
+    - **Validates: Requirements 12.5**
+  - [ ]* 8.4 Property 26: ドラフトからテンプレートへのラウンドトリップのプロパティテスト
+    - **Property 26: ドラフトからテンプレートへのラウンドトリップ**
+    - 保存されたテンプレートが `source: 'chat'` を持ち、ドラフトのタイトル・ページ・ロールが保持されていることを検証
+    - **Validates: Requirements 12.8**
+  - [ ]* 8.5 Property 27: チャットコンテンツ安全性の強制のプロパティテスト
+    - **Property 27: チャットコンテンツ安全性の強制**
+    - ユーザーメッセージに対して Content_Filter チェックが実行されることを検証
+    - 不適切メッセージが処理されずエラーが返ることを検証
+    - **Validates: Requirements 12.10**
+  - [ ]* 8.6 Property 28: チャットメッセージ数上限の強制のプロパティテスト
+    - **Property 28: チャットメッセージ数上限の強制**
+    - メッセージ数が50件に達している場合に新規送信が拒否されることを検証
+    - **Validates: Requirements 12.11**
+  - [ ]* 8.7 Property 29: テンプレート公開範囲の制御のプロパティテスト
+    - **Property 29: テンプレート公開範囲の制御**
+    - 管理者作成テンプレートの `creatorId` が null（公開）であることを検証
+    - 保護者作成テンプレートの `creatorId` がユーザーIDと一致する（プライベート）ことを検証
+    - **Validates: Requirements 12.12, 12.13**
+
+- [x] 9. チェックポイント — Chat_Story_Service
+  - 既存の100テストがすべてパスすることを確認
+  - 新規テストがすべてパスすることを確認
+  - 問題があればユーザーに確認する
+
+- [x] 10. バックエンドルートの実装
+  - [x] 10.1 `packages/backend/src/routes/characters.ts` を新規作成
+    - `GET /api/characters` — キャラクター一覧取得
+    - `POST /api/characters` — キャラクター登録（FormData: name, role, age, gender, appearance, photo）
+    - `GET /api/characters/:id` — キャラクター詳細取得
+    - `PUT /api/characters/:id` — キャラクター情報更新
+    - `DELETE /api/characters/:id` — キャラクター削除
+    - `PUT /api/characters/:id/photo` — 写真差し替え（FormData: photo）
+    - `POST /api/characters/:id/regenerate-sheet` — キャラクターシート再生成
+    - `authMiddleware` を適用
+    - Zod バリデーション（`CreateCharacterSchema`, `UpdateCharacterSchema`）を使用
+    - _Requirements: 2.1, 2.2, 2.3, 10.4, 11.1, 11.2, 11.3_
+  - [x] 10.2 `packages/backend/src/routes/templates.ts` を新規作成
+    - `GET /api/templates` — テンプレート一覧取得（公開 + 自分のプライベート）
+    - `POST /api/templates` — テンプレート作成
+    - `GET /api/templates/:id` — テンプレート詳細取得
+    - `PUT /api/templates/:id` — テンプレート更新
+    - `DELETE /api/templates/:id` — テンプレート論理削除（archived）
+    - `authMiddleware` を適用
+    - Zod バリデーション（`CreateTemplateSchema`）を使用
+    - _Requirements: 1.1, 1.4, 1.5, 4.1_
+  - [x] 10.3 `packages/backend/src/routes/chat-stories.ts` を新規作成
+    - `POST /api/chat-stories/sessions` — チャットセッション作成
+    - `GET /api/chat-stories/sessions` — セッション一覧取得
+    - `GET /api/chat-stories/sessions/:id` — セッション詳細取得
+    - `POST /api/chat-stories/sessions/:id/messages` — メッセージ送信（SSE レスポンス）
+    - `POST /api/chat-stories/sessions/:id/draft` — ドラフト生成要求
+    - `POST /api/chat-stories/sessions/:id/save` — ドラフトをテンプレートとして保存
+    - `authMiddleware` を適用、SSE ヘッダー設定（`res.flushHeaders()`）
+    - _Requirements: 12.1, 12.2, 12.5, 12.6, 12.7, 12.8, 12.9_
+  - [x] 10.4 `packages/backend/src/routes/books.ts` に `/api/books/generate-multi` エンドポイントを追加
+    - `POST /api/books/generate-multi` — マルチキャラクター絵本生成（SSE レスポンス）
+    - リクエストボディ: `{ templateId, characterAssignments, pageCount? }`
+    - `GenerateMultiBookSchema` でバリデーション
+    - 重複キャラクター割り当てチェック、必須ロール割り当てチェック
+    - テンプレート取得 → キャラクター取得 → `generateStoryFromTemplate` → Content_Filter → `generateForPageMultiCharacter` → ページ保存
+    - 既存の `sendSSE` パターンを踏襲
+    - 既存エンドポイントは変更しない（後方互換性）
+    - _Requirements: 5.2, 5.3, 6.1, 6.5, 6.6, 7.7, 8.1, 8.3, 8.6, 9.1, 9.2, 9.3_
+  - [x] 10.5 `packages/backend/src/app.ts` に新規ルーターを登録
+    - `charactersRouter`, `templatesRouter`, `chatStoriesRouter` を import して `app.use()` で登録
+    - _Requirements: 2.1, 4.1, 12.1_
+
+- [x] 11. チェックポイント — バックエンドルート
+  - 既存の100テストがすべてパスすることを確認
+  - 新規テストがすべてパスすることを確認
+  - 問題があればユーザーに確認する
+
+- [x] 12. フロントエンド — キャラクター管理ページ
+  - [x] 12.1 `packages/frontend/src/pages/CharacterListPage.tsx` を新規作成
+    - 登録済みキャラクター一覧を表示（名前、役割、写真サムネイル、キャラクターシートステータス）
+    - 新規キャラクター登録ボタン → `/characters/new` へ遷移
+    - 各キャラクターの編集・削除ボタン
+    - `CharacterCard` コンポーネントと `CharacterSheetStatus` コンポーネントを使用
+    - _Requirements: 2.1, 2.8, 11.1_
+  - [x] 12.2 `packages/frontend/src/components/CharacterCard.tsx` を新規作成
+    - キャラクターのサムネイル・名前・ロール・キャラクターシートステータスを表示
+    - _Requirements: 11.1_
+  - [x] 12.3 `packages/frontend/src/components/CharacterSheetStatus.tsx` を新規作成
+    - `none` / `generating` / `completed` / `failed` のステータスインジケーター
+    - _Requirements: 2.8_
+  - [x] 12.4 `packages/frontend/src/pages/CharacterFormPage.tsx` を新規作成
+    - 名前（必須）、役割（必須: ドロップダウン）、年齢、性別、外見の特徴の入力フォーム
+    - 写真アップロード（`PhotoUploadArea` コンポーネントを再利用）
+    - 新規作成（`POST /api/characters`）と編集（`PUT /api/characters/:id`）の両方に対応
+    - `CreateCharacterSchema` / `UpdateCharacterSchema` でクライアントサイドバリデーション
+    - _Requirements: 2.2, 2.3, 10.4_
+
+- [x] 13. フロントエンド — テンプレート選択・ロール割り当てページ
+  - [x] 13.1 `packages/frontend/src/pages/TemplateSelectPage.tsx` を新規作成
+    - アーカイブされていないテンプレート一覧を表示（タイトル、説明、対象年齢範囲、必要ロール一覧）
+    - テンプレート選択 → `/templates/:templateId/assign` へ遷移
+    - _Requirements: 4.1, 4.2_
+  - [x] 13.2 `packages/frontend/src/pages/RoleAssignPage.tsx` を新規作成
+    - テンプレートの必須・オプションロール一覧を表示
+    - 各ロールに登録済みキャラクターを割り当てるUI（`RoleAssignmentPanel` コンポーネント使用）
+    - 同一キャラクターの複数ロール割り当てを禁止
+    - 必須ロールすべてに割り当て完了で「生成開始」ボタンを有効化
+    - 写真未登録キャラクターへの警告メッセージ表示
+    - キャラクターシート生成中のステータス表示
+    - 未登録キャラクターがある場合の新規登録導線
+    - _Requirements: 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3, 5.4, 5.5_
+  - [x] 13.3 `packages/frontend/src/components/RoleAssignmentPanel.tsx` を新規作成
+    - ロールごとのキャラクター割り当てUI（ドロップダウンまたはカード形式）
+    - キャラクターの名前・役割・写真サムネイルを表示
+    - _Requirements: 5.1_
+
+- [x] 14. フロントエンド — チャットストーリーページ
+  - [x] 14.1 `packages/frontend/src/pages/ChatStoryPage.tsx` を新規作成
+    - チャット形式のUI（`ChatMessageList` + `ChatInput` コンポーネント使用）
+    - セッション作成（`POST /api/chat-stories/sessions`）
+    - メッセージ送信（`POST /api/chat-stories/sessions/:id/messages`）で SSE ストリーミング受信
+    - 「ストーリーを完成させる」ボタン → ドラフト生成（`POST /api/chat-stories/sessions/:id/draft`）
+    - ドラフトプレビュー（`DraftPreview` コンポーネント使用）
+    - ドラフト承認 → テンプレート保存（`POST /api/chat-stories/sessions/:id/save`）→ `/templates/:templateId/assign` へ遷移
+    - React StrictMode 二重実行対策（`useRef` ガードパターン）
+    - _Requirements: 12.1, 12.2, 12.4, 12.6, 12.7, 12.8, 12.9_
+  - [x] 14.2 `packages/frontend/src/components/ChatMessageList.tsx` を新規作成
+    - チャット会話履歴表示（ユーザー・アシスタントメッセージの区別）
+    - _Requirements: 12.2_
+  - [x] 14.3 `packages/frontend/src/components/ChatInput.tsx` を新規作成
+    - メッセージ入力欄（送信ボタン、Enter キー送信対応）
+    - _Requirements: 12.2_
+  - [x] 14.4 `packages/frontend/src/components/DraftPreview.tsx` を新規作成
+    - ストーリードラフトのプレビュー表示（各ページのテキスト・登場キャラクター）
+    - 各ページのテキスト編集機能
+    - 承認・修正ボタン
+    - _Requirements: 12.7_
+
+- [x] 15. フロントエンド — マルチキャラクター生成進捗ページ
+  - [x] 15.1 `packages/frontend/src/pages/MultiGeneratingPage.tsx` を新規作成
+    - `POST /api/books/generate-multi` に SSE リクエストを送信
+    - 進捗ステップ表示: ストーリー生成中 → キャラクターシート確認中 → イラスト生成中（ページ単位） → 完了
+    - 既存の `GeneratingPage.tsx` の SSE パターンを踏襲
+    - React StrictMode 二重実行対策（`useRef` ガードパターン）
+    - 完了時に自動的にプレビュー画面（`/books/:bookId`）に遷移
+    - エラー時にエラーメッセージと再試行ボタンを表示
+    - `ProgressBar` コンポーネントを再利用
+    - _Requirements: 6.5, 6.6, 7.7, 8.1, 8.2, 8.3, 8.4, 8.5_
+
+- [x] 16. フロントエンド — ルーティング・ダッシュボード拡張
+  - [x] 16.1 `packages/frontend/src/App.tsx` に新規ルートを追加
+    - `/characters`, `/characters/new`, `/characters/:id/edit`, `/templates`, `/templates/:templateId/assign`, `/chat-stories`, `/chat-stories/:sessionId`, `/generating-multi/:bookId` のルートを追加
+    - すべて `ProtectedRoute` でラップ
+    - _Requirements: 8.1, 9.4_
+  - [x] 16.2 `packages/frontend/src/pages/DashboardPage.tsx` を拡張
+    - 「テンプレートから作成」→ `/templates` へ遷移
+    - 「自由に作成」→ `/profiles/new` へ遷移（従来フロー）
+    - 「AIと一緒にストーリーを作る」→ `/chat-stories` へ遷移
+    - 「キャラクター管理」→ `/characters` へ遷移
+    - 既存の絵本一覧表示は維持
+    - _Requirements: 9.1, 9.4, 12.1_
+
+- [x] 17. 最終チェックポイント — 全体統合
+  - 既存の100テストがすべてパスすることを確認
+  - 新規テストがすべてパスすることを確認
+  - フロントエンドのビルドがエラーなく完了することを確認
+  - 問題があればユーザーに確認する
+
+## 備考
+
+- `*` マーク付きタスクはオプションであり、MVP のためにスキップ可能
+- 各タスクは特定の要件を参照しており、トレーサビリティを確保
+- チェックポイントで段階的な検証を実施
+- プロパティテストは各正当性プロパティ（Property 1〜29）に対応
+- ユニットテストは具体的な例やエッジケースを検証
+- 既存コードの変更は最小限に抑え、新規メソッド・ルートの追加で対応
