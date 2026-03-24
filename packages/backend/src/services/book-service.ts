@@ -2,12 +2,75 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getDb } from '../lib/firebase.js';
 
+const SIGNED_URL_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 days
+const SIGNED_URL_REFRESH_THRESHOLD_MS = 1 * 24 * 60 * 60 * 1000; // refresh if < 1 day left
+
+/**
+ * URLが有効期限内であればそのまま返し、期限切れ/未設定なら再生成して
+ * Firestoreドキュメントを更新する。
+ */
+async function getOrRefreshSignedUrl(
+  url: string | null,
+  expiresAt: Timestamp | null,
+  storagePath: string,
+  docRef: FirebaseFirestore.DocumentReference,
+  urlField: string,
+  expiresField: string,
+): Promise<string | null> {
+  if (!url) return null;
+
+  const now = Date.now();
+  const expMs = expiresAt ? expiresAt.toMillis() : 0;
+
+  // URLがまだ有効なら再利用
+  if (expMs - now > SIGNED_URL_REFRESH_THRESHOLD_MS) {
+    return url;
+  }
+
+  // 再生成
+  try {
+    const bucket = getStorage().bucket();
+    const newExpiry = now + SIGNED_URL_TTL_MS;
+    const [signedUrl] = await bucket.file(storagePath).getSignedUrl({
+      action: 'read',
+      expires: newExpiry,
+    });
+    // Firestoreを非同期で更新（レスポンスをブロックしない）
+    docRef.update({
+      [urlField]: signedUrl,
+      [expiresField]: Timestamp.fromMillis(newExpiry),
+    }).catch(() => {/* non-fatal */});
+    return signedUrl;
+  } catch {
+    return url; // 失敗したら古いURLをそのまま返す
+  }
+}
+
+/**
+ * 署名付きURLからStorage内のパスを抽出する。
+ */
+function extractStoragePath(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').slice(2);
+      return parts.join('/');
+    }
+    if (parsed.hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)/);
+      if (match) return decodeURIComponent(match[1]);
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 export interface BookDoc {
   profileId: string;
   title: string;
   theme: string;
   status: 'generating' | 'completed' | 'error';
   thumbnailUrl: string | null;
+  thumbnailUrlExpiresAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -17,6 +80,7 @@ export interface PageDoc {
   text: string;
   originalText: string;
   imageUrl: string;
+  imageUrlExpiresAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -63,6 +127,7 @@ export async function savePages(
       text: page.text,
       originalText: page.text,
       imageUrl: page.imageUrl,
+      imageUrlExpiresAt: Timestamp.fromMillis(Date.now() + SIGNED_URL_TTL_MS),
       createdAt: now,
       updatedAt: now,
     };
@@ -85,6 +150,7 @@ export async function updateBookStatus(
   };
   if (thumbnailUrl !== undefined) {
     update.thumbnailUrl = thumbnailUrl;
+    update.thumbnailUrlExpiresAt = Timestamp.fromMillis(Date.now() + SIGNED_URL_TTL_MS);
   }
   await getBooksCollection(userId).doc(bookId).update(update);
 }
@@ -112,16 +178,29 @@ export async function getBooks(userId: string): Promise<BookSummary[]> {
     .orderBy('createdAt', 'desc')
     .get();
 
-  return snapshot.docs.map((doc) => {
-    const data = doc.data() as BookDoc;
-    return {
-      id: doc.id,
-      title: data.title,
-      thumbnailUrl: data.thumbnailUrl,
-      createdAt: data.createdAt.toDate().toISOString(),
-      updatedAt: data.updatedAt.toDate().toISOString(),
-    };
-  });
+  return Promise.all(
+    snapshot.docs.map(async (doc) => {
+      const data = doc.data() as BookDoc;
+      const storagePath = data.thumbnailUrl ? extractStoragePath(data.thumbnailUrl) : null;
+      const thumbnailUrl = storagePath
+        ? await getOrRefreshSignedUrl(
+            data.thumbnailUrl,
+            data.thumbnailUrlExpiresAt ?? null,
+            storagePath,
+            doc.ref,
+            'thumbnailUrl',
+            'thumbnailUrlExpiresAt',
+          )
+        : data.thumbnailUrl;
+      return {
+        id: doc.id,
+        title: data.title,
+        thumbnailUrl,
+        createdAt: data.createdAt.toDate().toISOString(),
+        updatedAt: data.updatedAt.toDate().toISOString(),
+      };
+    })
+  );
 }
 
 export async function getBookById(userId: string, bookId: string): Promise<BookDetail | null> {
@@ -136,15 +215,28 @@ export async function getBookById(userId: string, bookId: string): Promise<BookD
     .orderBy('pageNumber', 'asc')
     .get();
 
-  const pages = pagesSnap.docs.map((doc) => {
-    const p = doc.data() as PageDoc;
-    return {
-      pageNumber: p.pageNumber,
-      text: p.text,
-      originalText: p.originalText,
-      imageUrl: p.imageUrl,
-    };
-  });
+  const pages = await Promise.all(
+    pagesSnap.docs.map(async (doc) => {
+      const p = doc.data() as PageDoc;
+      const storagePath = extractStoragePath(p.imageUrl);
+      const imageUrl = storagePath
+        ? await getOrRefreshSignedUrl(
+            p.imageUrl,
+            p.imageUrlExpiresAt ?? null,
+            storagePath,
+            doc.ref,
+            'imageUrl',
+            'imageUrlExpiresAt',
+          ) ?? p.imageUrl
+        : p.imageUrl;
+      return {
+        pageNumber: p.pageNumber,
+        text: p.text,
+        originalText: p.originalText,
+        imageUrl,
+      };
+    })
+  );
 
   return {
     id: bookSnap.id,

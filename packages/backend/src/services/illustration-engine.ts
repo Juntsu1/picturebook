@@ -29,7 +29,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 function buildIllustrationPrompt(
-  page: { pageNumber: number; text: string; outfit?: string },
+  page: { pageNumber: number; text: string; outfit?: string; illustration_notes?: string },
   profile: ChildProfile,
   theme: Theme
 ): string {
@@ -50,18 +50,26 @@ function buildIllustrationPrompt(
     ? `\nCharacter outfit (EXACT — same collar, sleeves, shoes on every page): ${page.outfit}\n`
     : '';
 
+  const notesLine = page.illustration_notes
+    ? `\nIllustration notes: ${page.illustration_notes}\n`
+    : '';
+
   return `A warm, colorful watercolor-style illustration for a picture book.
 
 Theme: ${themeLabel}
-Scene description: 「${page.text}」
+Story text for this page: 「${page.text}」
 
 Character: ${characterNote}
-${outfitLine}
+${outfitLine}${notesLine}
+Background & scene:
+- Draw the background that naturally fits the story text above (e.g., park, home, road, forest, school — whatever the text implies)
+- Keep the setting realistic and everyday; avoid fantasy castles, treasure chests, hot-air balloons, or unrelated magical elements
+- The scene should feel consistent with the rest of the story
+
 Style requirements:
 - Soft watercolor painting style, suitable for a picture book
 - Bright, cheerful, and vibrant colors
 - Cartoon-like friendly characters (no realistic human depictions)
-- Focus on animals, nature, and fantasy elements
 - No text or words in the image`;
 }
 
@@ -183,7 +191,7 @@ STRICT PROHIBITIONS:
 }
 
 function buildPhotoReferencePrompt(
-  page: { pageNumber: number; text: string; outfit?: string },
+  page: { pageNumber: number; text: string; outfit?: string; illustration_notes?: string },
   profile: ChildProfile,
   theme: Theme,
   appearanceDescription?: string
@@ -198,6 +206,10 @@ function buildPhotoReferencePrompt(
     ? `\nOUTFIT (MUST match exactly across pages — do NOT change any detail):\n${page.outfit}\nDraw EXACTLY this outfit: same collar shape, same sleeve length, same shoe type and color. No variations.\n`
     : '';
 
+  const notesBlock = page.illustration_notes
+    ? `\nIllustration notes: ${page.illustration_notes}\n`
+    : '';
+
   return `Create a picture book illustration for one page of a story.
 
 HIGHEST PRIORITY — CHARACTER CONSISTENCY:
@@ -206,11 +218,16 @@ HIGHEST PRIORITY — CHARACTER CONSISTENCY:
 - The character in this illustration MUST match the character sheet EXACTLY.
 - Keep the EXACT same face, hairstyle, hair color, and body proportions as shown in the character sheet.
 - The character must be immediately recognizable as the same person across all pages.
-${appearanceBlock}${outfitBlock}
+${appearanceBlock}${outfitBlock}${notesBlock}
 SCENE:
 Theme: ${themeLabel}
 Story text: "${page.text}"
 Character name: ${profile.name}
+
+BACKGROUND & SETTING:
+- Draw the background that naturally fits the story text above (e.g., park, home, road, forest, school — whatever the text implies)
+- Keep the setting realistic and everyday; avoid fantasy castles, treasure chests, hot-air balloons, or unrelated magical elements
+- The scene should feel consistent with the rest of the story
 
 STYLE:
 - Match the SAME illustration style as the character sheet
@@ -339,7 +356,7 @@ async function uploadToStorage(
 }
 
 export async function generateForPage(
-  page: { pageNumber: number; text: string; outfit?: string },
+  page: { pageNumber: number; text: string; outfit?: string; illustration_notes?: string },
   profile: ChildProfile,
   theme: Theme,
   options: {
@@ -444,7 +461,7 @@ export async function generateForPage(
 type StorageBucket = { file: (path: string) => { save: (data: Buffer, opts: object) => Promise<void>; getSignedUrl: (opts: object) => Promise<string[]>; publicUrl: () => string } };
 
 function buildMultiCharacterPrompt(
-  page: { pageNumber: number; text: string; outfit?: string },
+  page: { pageNumber: number; text: string; outfit?: string; illustration_notes?: string },
   characters: Map<string, { profile: CharacterProfile; photoBuffer?: Buffer; characterSheetBuffer?: Buffer }>,
   pageRoles: string[],
   theme: Theme,
@@ -487,6 +504,10 @@ function buildMultiCharacterPrompt(
     ? `- Reference images are provided in pairs: [character_sheet, original_photo]\n${pairLines.join('\n')}\n- Each character MUST match their respective character sheet EXACTLY`
     : '- No reference images provided, generate characters based on text descriptions only';
 
+  const notesBlock = page.illustration_notes
+    ? `\nIllustration notes: ${page.illustration_notes}\n`
+    : '';
+
   return `HIGHEST PRIORITY — CHARACTER CONSISTENCY:
 ${pairSection}
 
@@ -496,6 +517,11 @@ ${charDetailLines.join('\n')}
 SCENE:
 Theme: ${themeLabel}
 Story text: "${page.text}"
+${notesBlock}
+BACKGROUND & SETTING:
+- Draw the background that naturally fits the story text above (e.g., park, home, road, forest, school — whatever the text implies)
+- Keep the setting realistic and everyday; avoid fantasy castles, treasure chests, hot-air balloons, or unrelated magical elements
+- The scene should feel consistent with the rest of the story
 
 STYLE:
 - Warm, colorful watercolor picture book illustration
@@ -514,7 +540,7 @@ function extractOutfitForRole(outfit: string, role: string): string {
 }
 
 export async function generateForPageMultiCharacter(
-  page: { pageNumber: number; text: string; outfit?: string },
+  page: { pageNumber: number; text: string; outfit?: string; illustration_notes?: string },
   characters: Map<string, { profile: CharacterProfile; photoBuffer?: Buffer; characterSheetBuffer?: Buffer }>,
   pageRoles: string[],
   theme: Theme,

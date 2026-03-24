@@ -186,12 +186,12 @@ function handleEvent(
       setState((s) => ({
         ...s,
         status: 'illustration',
-        currentPage: event.pageNumber - 1,
+        currentPage: event.pageNumber,
         totalPages: event.totalPages,
       }));
       break;
     case 'illustration_complete':
-      setState((s) => ({ ...s, currentPage: event.pageNumber }));
+      // currentPage は illustration_generating で更新済みのため変更不要
       break;
     case 'complete':
       setState((s) => ({ ...s, status: 'complete' }));

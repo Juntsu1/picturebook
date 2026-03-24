@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.env
+packages/backend/service-account.json
+packages/backend/.env

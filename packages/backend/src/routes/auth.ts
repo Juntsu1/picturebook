@@ -26,6 +26,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       res.status(status).json({ code: err.code, message: err.message });
       return;
     }
+    console.error('Register error:', err);
     res.status(500).json({ code: 'INTERNAL_ERROR', message: 'サーバーエラーが発生しました' });
   }
 });
