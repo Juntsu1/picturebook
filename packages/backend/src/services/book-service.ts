@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getDb } from '../lib/firebase.js';
+import type { AppearanceDefinition, SceneDefinition, PageSceneMapping } from '@picture-book/shared';
 
 const SIGNED_URL_TTL_MS = 6 * 24 * 60 * 60 * 1000; // 6 days
 const SIGNED_URL_REFRESH_THRESHOLD_MS = 1 * 24 * 60 * 60 * 1000; // refresh if < 1 day left
@@ -304,4 +305,58 @@ export async function deleteBook(
   }
 
   return true;
+}
+
+
+// --- Consistency definitions persistence ---
+
+export interface ConsistencyData {
+  appearances: Record<string, AppearanceDefinition>; // role -> definition
+  scenes: SceneDefinition[];
+  pageSceneMapping: PageSceneMapping;
+  createdAt: string;
+}
+
+export async function saveConsistencyDefinitions(
+  userId: string,
+  bookId: string,
+  data: {
+    appearances: Map<string, AppearanceDefinition> | undefined;
+    scenes: SceneDefinition[];
+    pageSceneMapping: Record<number, string>;
+  }
+): Promise<void> {
+  const appearancesObj: Record<string, AppearanceDefinition> = {};
+  if (data.appearances) {
+    for (const [role, def] of data.appearances.entries()) {
+      appearancesObj[role] = def;
+    }
+  }
+
+  const doc: ConsistencyData = {
+    appearances: appearancesObj,
+    scenes: data.scenes,
+    pageSceneMapping: data.pageSceneMapping,
+    createdAt: new Date().toISOString(),
+  };
+
+  await getBooksCollection(userId)
+    .doc(bookId)
+    .collection('metadata')
+    .doc('consistency')
+    .set(doc);
+}
+
+export async function getConsistencyDefinitions(
+  userId: string,
+  bookId: string
+): Promise<ConsistencyData | null> {
+  const snap = await getBooksCollection(userId)
+    .doc(bookId)
+    .collection('metadata')
+    .doc('consistency')
+    .get();
+
+  if (!snap.exists) return null;
+  return snap.data() as ConsistencyData;
 }

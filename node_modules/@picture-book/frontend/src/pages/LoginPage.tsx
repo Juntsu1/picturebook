@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RegisterSchema, LoginSchema } from '@picture-book/shared';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,10 +22,11 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // If already logged in, redirect
-  if (user) {
-    navigate('/', { replace: true });
-    return null;
-  }
+  useEffect(() => {
+    if (user) {
+      navigate('/', { replace: true });
+    }
+  }, [user, navigate]);
 
   function switchMode() {
     setMode(mode === 'login' ? 'register' : 'login');

@@ -52,6 +52,8 @@ export const CharacterRoleSchema = z.enum([
   'other',
 ]);
 
+export const CharacterTypeSchema = z.enum(['registered', 'auto_generated']);
+
 export const CreateCharacterSchema = z.object({
   name: z.string().min(1, '名前は必須です').max(50),
   role: CharacterRoleSchema,
@@ -80,6 +82,7 @@ export const CreateTemplateSchema = z.object({
     role: z.string().min(1),
     label: z.string().min(1),
     required: z.boolean(),
+    characterType: CharacterTypeSchema.optional().default('registered'),
   })).min(1),
   pages: z.array(z.object({
     pageNumber: z.number().int().min(1),

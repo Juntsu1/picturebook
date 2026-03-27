@@ -40,10 +40,38 @@ export interface ProfileResponse {
   createdAt: string;
 }
 
+// サブキャラクター外見定義
+export interface AppearanceDefinition {
+  role: string;
+  name: string;
+  hairStyle: string;
+  hairColor: string;
+  clothing: string;
+  bodyType: string;
+  ageGroup: string;
+  distinguishingFeatures: string;
+}
+
+// シーン定義
+export interface SceneDefinition {
+  sceneId: string;
+  locationName: string;
+  keyElements: string;
+  colorPalette: string;
+  lighting: string;
+  atmosphere: string;
+  keyProps: string; // 重要な小物の詳細定義（ぬいぐるみ、道具など）
+}
+
+// ページシーンマッピング
+export type PageSceneMapping = Record<number, string>;
+
 // SSE 進捗イベント
 export type ProgressEvent =
   | { type: 'story_generating' }
   | { type: 'story_complete'; title: string; pageCount: number }
+  | { type: 'consistency_generating' }
+  | { type: 'consistency_complete' }
   | { type: 'character_sheets_checking' }
   | { type: 'illustration_generating'; pageNumber: number; totalPages: number }
   | { type: 'illustration_complete'; pageNumber: number }
@@ -74,6 +102,7 @@ export interface TemplateRole {
   role: string;
   label: string;
   required: boolean;
+  characterType?: 'registered' | 'auto_generated';
 }
 
 // ページテンプレート
@@ -147,6 +176,8 @@ export interface ChatSession {
 export type MultiProgressEvent =
   | { type: 'story_generating' }
   | { type: 'story_complete'; title: string; pageCount: number }
+  | { type: 'consistency_generating' }
+  | { type: 'consistency_complete' }
   | { type: 'character_sheets_checking' }
   | { type: 'illustration_generating'; pageNumber: number; totalPages: number }
   | { type: 'illustration_complete'; pageNumber: number }

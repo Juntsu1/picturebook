@@ -52,6 +52,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       res.status(status).json({ code: err.code, message: err.message });
       return;
     }
+    console.error('Login error:', err);
     res.status(500).json({ code: 'INTERNAL_ERROR', message: 'サーバーエラーが発生しました' });
   }
 });

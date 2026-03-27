@@ -162,14 +162,18 @@ describe('POST /api/books/generate', () => {
       pageCount: 8,
     });
 
-    // 8 pages × 2 events (generating + complete) = 16 illustration events
+    // consistency events (Scene_Extractor integration)
+    expect(events[2]).toEqual({ type: 'consistency_generating' });
+    expect(events[3]).toEqual({ type: 'consistency_complete' });
+
+    // 8 pages × 2 events (generating + complete) = 16 illustration events (offset by 4)
     for (let i = 0; i < 8; i++) {
-      expect(events[2 + i * 2]).toEqual({
+      expect(events[4 + i * 2]).toEqual({
         type: 'illustration_generating',
         pageNumber: i + 1,
         totalPages: 8,
       });
-      expect(events[3 + i * 2]).toEqual({
+      expect(events[5 + i * 2]).toEqual({
         type: 'illustration_complete',
         pageNumber: i + 1,
       });

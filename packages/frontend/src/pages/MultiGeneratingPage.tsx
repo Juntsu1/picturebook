@@ -8,7 +8,7 @@ import { AppHeader } from '../components/AppHeader';
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 interface GeneratingState {
-  status: 'connecting' | 'story' | 'character_sheets' | 'illustration' | 'complete' | 'error';
+  status: 'connecting' | 'story' | 'consistency' | 'character_sheets' | 'illustration' | 'complete' | 'error';
   title?: string;
   currentPage: number;
   totalPages: number;
@@ -179,6 +179,12 @@ function handleEvent(
         currentPage: 0,
       }));
       break;
+    case 'consistency_generating':
+      setState((s) => ({ ...s, status: 'consistency' }));
+      break;
+    case 'consistency_complete':
+      // no-op: illustration events will follow
+      break;
     case 'character_sheets_checking':
       setState((s) => ({ ...s, status: 'character_sheets' }));
       break;
@@ -210,6 +216,7 @@ function handleEvent(
 
 function computePercent(state: GeneratingState): number {
   if (state.status === 'connecting' || state.status === 'story') return 10;
+  if (state.status === 'consistency') return 13;
   if (state.status === 'character_sheets') return 15;
   if (state.status === 'illustration' && state.totalPages > 0) {
     return 20 + Math.round((state.currentPage / state.totalPages) * 80);
@@ -224,6 +231,8 @@ function computeLabel(state: GeneratingState): string {
       return '接続中...';
     case 'story':
       return 'ストーリーを生成中...';
+    case 'consistency':
+      return 'イラストの一貫性を準備中...';
     case 'character_sheets':
       return 'キャラクターシートを確認中...';
     case 'illustration':

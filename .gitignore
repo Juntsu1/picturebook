@@ -2,4 +2,5 @@ node_modules/
 dist/
 *.env
 packages/backend/service-account.json
+packages/backend/serviceAccountKey.json
 packages/backend/.env
